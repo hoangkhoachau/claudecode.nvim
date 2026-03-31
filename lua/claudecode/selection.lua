@@ -3,7 +3,10 @@
 local M = {}
 
 local logger = require("claudecode.logger")
-local terminal = require("claudecode.terminal")
+local _terminal_ok, terminal = pcall(require, "claudecode.terminal")
+if not _terminal_ok then
+  terminal = nil
+end
 
 M.state = {
   latest_selection = nil,

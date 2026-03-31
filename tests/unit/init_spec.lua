@@ -288,7 +288,8 @@ describe("claudecode.init", function()
       assert(#mock_lockfile.remove.calls == 0, "Lockfile remove was called unexpectedly")
     end)
   end)
-
+end)
+--[[REMOVED_TERMINAL_COMMAND_TESTS
   describe("ClaudeCode command with arguments", function()
     local mock_terminal
 
@@ -612,3 +613,4 @@ describe("claudecode.init", function()
     end)
   end)
 end)
+--]]

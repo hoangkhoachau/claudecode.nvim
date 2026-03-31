@@ -177,13 +177,8 @@ describe("Config module", function()
 
   it("should apply and validate user configuration", function()
     local user_config = {
-      terminal_cmd = "toggleterm",
       log_level = "debug",
       track_selection = false,
-      models = {
-        { name = "Claude Opus 4 (Latest)", value = "claude-opus-4-20250514" },
-        { name = "Claude Sonnet 4 (Latest)", value = "claude-sonnet-4-20250514" },
-      },
     }
 
     local success, final_config = pcall(function()
@@ -191,8 +186,8 @@ describe("Config module", function()
     end)
 
     assert(success == true)
-    assert(final_config.env ~= nil) -- Should inherit default empty table
-    assert(type(final_config.env) == "table")
+    assert(final_config.log_level == "debug")
+    assert(final_config.track_selection == false)
   end)
 
   it("should merge user config with defaults", function()

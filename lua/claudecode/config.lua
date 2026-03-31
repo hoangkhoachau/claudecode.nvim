@@ -10,12 +10,9 @@ local M = {}
 M.defaults = {
   port_range = { min = 10000, max = 65535 },
   auto_start = true,
-  terminal_cmd = nil,
-  env = {}, -- Custom environment variables for Claude terminal
   log_level = "info",
   track_selection = true,
-  -- When true, focus Claude terminal after a successful send while connected
-  focus_after_send = false,
+  focus_on_send = true, -- When true, focus the tmux pane running Claude after sending context
   visual_demotion_delay_ms = 50, -- Milliseconds to wait before demoting a visual selection
   connection_wait_delay = 600, -- Milliseconds to wait after connection before sending queued @ mentions
   connection_timeout = 10000, -- Maximum time to wait for Claude Code to connect (milliseconds)
@@ -23,17 +20,10 @@ M.defaults = {
   diff_opts = {
     layout = "vertical",
     open_in_new_tab = false, -- Open diff in a new tab (false = use current tab)
-    keep_terminal_focus = false, -- If true, moves focus back to terminal after diff opens (including floating terminals)
-    hide_terminal_in_new_tab = false, -- If true and opening in a new tab, do not show Claude terminal there
+    keep_terminal_focus = false,
+    hide_terminal_in_new_tab = false,
     on_new_file_reject = "keep_empty", -- "keep_empty" leaves an empty buffer; "close_window" closes the placeholder split
   },
-  models = {
-    { name = "Claude Opus 4.1 (Latest)", value = "opus" },
-    { name = "Claude Sonnet 4.5 (Latest)", value = "sonnet" },
-    { name = "Opusplan: Claude Opus 4.1 (Latest) + Sonnet 4.5 (Latest)", value = "opusplan" },
-    { name = "Claude Haiku 4.5 (Latest)", value = "haiku" },
-  },
-  terminal = nil, -- Will be lazy-loaded to avoid circular dependency
 }
 
 ---Validates the provided configuration table.
@@ -53,32 +43,6 @@ function M.validate(config)
 
   assert(type(config.auto_start) == "boolean", "auto_start must be a boolean")
 
-  assert(config.terminal_cmd == nil or type(config.terminal_cmd) == "string", "terminal_cmd must be nil or a string")
-
-  -- Validate terminal config
-  assert(type(config.terminal) == "table", "terminal must be a table")
-
-  -- Validate provider_opts if present
-  if config.terminal.provider_opts then
-    assert(type(config.terminal.provider_opts) == "table", "terminal.provider_opts must be a table")
-
-    -- Validate external_terminal_cmd in provider_opts
-    if config.terminal.provider_opts.external_terminal_cmd then
-      local cmd_type = type(config.terminal.provider_opts.external_terminal_cmd)
-      assert(
-        cmd_type == "string" or cmd_type == "function",
-        "terminal.provider_opts.external_terminal_cmd must be a string or function"
-      )
-      -- Only validate %s placeholder for strings
-      if cmd_type == "string" and config.terminal.provider_opts.external_terminal_cmd ~= "" then
-        assert(
-          config.terminal.provider_opts.external_terminal_cmd:find("%%s"),
-          "terminal.provider_opts.external_terminal_cmd must contain '%s' placeholder for the Claude command"
-        )
-      end
-    end
-  end
-
   local valid_log_levels = { "trace", "debug", "info", "warn", "error" }
   local is_valid_log_level = false
   for _, level in ipairs(valid_log_levels) do
@@ -90,9 +54,8 @@ function M.validate(config)
   assert(is_valid_log_level, "log_level must be one of: " .. table.concat(valid_log_levels, ", "))
 
   assert(type(config.track_selection) == "boolean", "track_selection must be a boolean")
-  -- Allow absence in direct validate() calls; apply() supplies default
-  if config.focus_after_send ~= nil then
-    assert(type(config.focus_after_send) == "boolean", "focus_after_send must be a boolean")
+  if config.focus_on_send ~= nil then
+    assert(type(config.focus_on_send) == "boolean", "focus_on_send must be a boolean")
   end
 
   assert(
@@ -113,7 +76,6 @@ function M.validate(config)
   assert(type(config.queue_timeout) == "number" and config.queue_timeout > 0, "queue_timeout must be a positive number")
 
   assert(type(config.diff_opts) == "table", "diff_opts must be a table")
-  -- New diff options (optional validation to allow backward compatibility)
   if config.diff_opts.layout ~= nil then
     assert(
       config.diff_opts.layout == "vertical" or config.diff_opts.layout == "horizontal",
@@ -156,23 +118,6 @@ function M.validate(config)
     assert(type(config.diff_opts.open_in_current_tab) == "boolean", "diff_opts.open_in_current_tab must be a boolean")
   end
 
-  -- Validate env
-  assert(type(config.env) == "table", "env must be a table")
-  for key, value in pairs(config.env) do
-    assert(type(key) == "string", "env keys must be strings")
-    assert(type(value) == "string", "env values must be strings")
-  end
-
-  -- Validate models
-  assert(type(config.models) == "table", "models must be a table")
-  assert(#config.models > 0, "models must not be empty")
-
-  for i, model in ipairs(config.models) do
-    assert(type(model) == "table", "models[" .. i .. "] must be a table")
-    assert(type(model.name) == "string" and model.name ~= "", "models[" .. i .. "].name must be a non-empty string")
-    assert(type(model.value) == "string" and model.value ~= "", "models[" .. i .. "].value must be a non-empty string")
-  end
-
   return true
 end
 
@@ -181,14 +126,6 @@ end
 ---@return ClaudeCodeConfig config The final, validated configuration table.
 function M.apply(user_config)
   local config = vim.deepcopy(M.defaults)
-
-  -- Lazy-load terminal defaults to avoid circular dependency
-  if config.terminal == nil then
-    local terminal_ok, terminal_module = pcall(require, "claudecode.terminal")
-    if terminal_ok and terminal_module.defaults then
-      config.terminal = terminal_module.defaults
-    end
-  end
 
   if user_config then
     -- Use vim.tbl_deep_extend if available, otherwise simple merge

@@ -5,7 +5,6 @@ describe("ClaudeCodeSend Command Range Functionality", function()
   local claudecode
   local mock_selection_module
   local mock_server
-  local mock_terminal
   local command_callback
   local original_require
 
@@ -13,7 +12,6 @@ describe("ClaudeCodeSend Command Range Functionality", function()
     -- Reset package cache
     package.loaded["claudecode"] = nil
     package.loaded["claudecode.selection"] = nil
-    package.loaded["claudecode.terminal"] = nil
     package.loaded["claudecode.server.init"] = nil
     package.loaded["claudecode.lockfile"] = nil
     package.loaded["claudecode.config"] = nil
@@ -68,12 +66,6 @@ describe("ClaudeCodeSend Command Range Functionality", function()
       end),
     }
 
-    -- Mock terminal module
-    mock_terminal = {
-      open = spy.new(function() end),
-      ensure_visible = spy.new(function() end),
-    }
-
     -- Mock server
     mock_server = {
       start = function()
@@ -121,8 +113,6 @@ describe("ClaudeCodeSend Command Range Functionality", function()
     _G.require = function(module_name)
       if module_name == "claudecode.selection" then
         return mock_selection_module
-      elseif module_name == "claudecode.terminal" then
-        return mock_terminal
       elseif module_name == "claudecode.server.init" then
         return mock_server
       elseif module_name == "claudecode.lockfile" then
@@ -229,8 +219,6 @@ describe("ClaudeCodeSend Command Range Functionality", function()
       command_callback(opts)
 
       assert.spy(_G.vim.api.nvim_feedkeys).was_called()
-      -- Terminal should not be automatically opened
-      assert.spy(mock_terminal.open).was_not_called()
     end)
 
     it("should handle server not running", function()
@@ -268,9 +256,8 @@ describe("ClaudeCodeSend Command Range Functionality", function()
       command_callback(opts)
 
       assert.spy(mock_selection_module.send_at_mention_for_visual_selection).was_called()
-      -- Should not exit visual mode or focus terminal on failure
+      -- Should not exit visual mode on failure
       assert.spy(_G.vim.api.nvim_feedkeys).was_not_called()
-      assert.spy(mock_terminal.open).was_not_called()
     end)
   end)
 end)
