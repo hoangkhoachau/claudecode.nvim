@@ -445,13 +445,8 @@ function M.stop()
     return false, "Not running"
   end
 
-  local lockfile = require("claudecode.lockfile")
-  local lock_success, lock_error = lockfile.remove(M.state.port)
-
-  if not lock_success then
-    logger.warn("init", "Failed to remove lock file: " .. lock_error)
-    -- Continue with shutdown even if lock file removal fails
-  end
+  -- Intentionally keep the lock file so the auth token persists across nvim restarts.
+  -- The next session will reuse the same port+token (port is kept via @claude_port tmux var).
 
   if M.state.config.track_selection then
     local selection = require("claudecode.selection")
