@@ -15,14 +15,18 @@ end
 ---Find the tmux pane running the claude process.
 ---@return string|nil pane_id The pane ID (e.g. "%3") or nil if not found
 local function find_claude_pane()
-  local output = vim.fn.system("tmux list-panes -a -F '#{pane_id} #{pane_current_command}' 2>/dev/null")
+  local output = vim.fn.system("tmux list-panes -a -F '#{pane_id} #{pane_current_command} #{pane_title}' 2>/dev/null")
   if vim.v.shell_error ~= 0 or not output or output == "" then
     return nil
   end
   for line in output:gmatch("[^\n]+") do
-    local pane_id, cmd = line:match("^(%S+)%s+(.+)$")
-    if pane_id and cmd and cmd:match("^claude") then
-      return pane_id
+    local pane_id, rest = line:match("^(%S+)%s+(.+)$")
+    if pane_id and rest then
+      -- Match by command name or by pane title containing "Claude Code"
+      local cmd = rest:match("^(%S+)")
+      if (cmd and cmd:match("^claude")) or rest:find("Claude Code", 1, true) then
+        return pane_id
+      end
     end
   end
   return nil
@@ -75,6 +79,17 @@ function M.advertise_port(port)
   end
 
   vim.fn.system("tmux set-option -w " .. WINDOW_PORT_VAR .. " " .. port)
+
+  -- Register a window-close hook to clean up the lock file when the tmux window dies.
+  -- This runs even if nvim crashes, ensuring no stale lock files accumulate.
+  local lock_dir = os.getenv("CLAUDE_CONFIG_DIR") or (os.getenv("HOME") .. "/.claude/ide")
+  local lock_path = lock_dir .. "/" .. port .. ".lock"
+  local hook_cmd = string.format(
+    "tmux set-hook -w window-close \"run-shell 'rm -f %s'\" 2>/dev/null",
+    lock_path
+  )
+  vim.fn.system(hook_cmd)
+
   return true, nil
 end
 
