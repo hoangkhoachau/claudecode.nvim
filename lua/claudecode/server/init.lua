@@ -4,7 +4,7 @@ local logger = require("claudecode.logger")
 local tcp_server = require("claudecode.server.tcp")
 local tools = require("claudecode.tools.init") -- Added: Require the tools module
 
-local MCP_PROTOCOL_VERSION = "2024-11-05"
+local MCP_PROTOCOL_VERSION = "2025-03-26"
 
 local M = {}
 

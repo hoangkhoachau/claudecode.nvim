@@ -55,7 +55,13 @@ function M.advertise_port(port)
   existing = existing:gsub("%s+$", "") -- trim trailing whitespace/newline
 
   if existing ~= "" then
-    return false, "Window already has a Neovim bridge on port " .. existing
+    -- Check if the existing port's lock file still exists (stale if nvim crashed)
+    local lock_dir = os.getenv("CLAUDE_CONFIG_DIR") or (os.getenv("HOME") .. "/.claude/ide")
+    local lock_path = lock_dir .. "/" .. existing .. ".lock"
+    if vim.fn.filereadable(lock_path) == 1 then
+      return false, "Window already has a Neovim bridge on port " .. existing
+    end
+    -- Lock file gone — stale entry, overwrite it
   end
 
   vim.fn.system("tmux set-option -w " .. WINDOW_PORT_VAR .. " " .. port)
