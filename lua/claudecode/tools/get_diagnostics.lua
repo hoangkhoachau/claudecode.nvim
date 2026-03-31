@@ -1,9 +1,4 @@
 --- Tool implementation for getting diagnostics.
-
--- NOTE: Its important we don't tip off Claude that we're dealing with Neovim LSP diagnostics because it may adjust
--- line and col numbers by 1 on its own (since it knows nvim LSP diagnostics are 0-indexed). By calling these
--- "editor diagnostics" and converting to 1-indexed ourselves we (hopefully) avoid incorrect line and column numbers
--- in Claude's responses.
 local schema = {
   description = "Get language diagnostics (errors, warnings) from the editor",
   inputSchema = {
@@ -19,14 +14,61 @@ local schema = {
   },
 }
 
+local SEVERITY_MAP = {
+  [1] = "Error",
+  [2] = "Warning",
+  [3] = "Info",
+  [4] = "Hint",
+}
+
+---Formats a list of raw Neovim diagnostics into a DiagnosticFile[] array
+---grouped by file URI, matching the VS Code extension output format.
+---@param diagnostics table Raw diagnostics from vim.diagnostic.get()
+---@return table DiagnosticFile[] array
+local function format_diagnostics(diagnostics)
+  local files_map = {}
+  local files_order = {}
+
+  for _, diagnostic in ipairs(diagnostics) do
+    local file_path = vim.api.nvim_buf_get_name(diagnostic.bufnr)
+    if file_path and file_path ~= "" then
+      local uri = "file://" .. file_path
+      if not files_map[uri] then
+        files_map[uri] = { uri = uri, diagnostics = {} }
+        table.insert(files_order, uri)
+      end
+      table.insert(files_map[uri].diagnostics, {
+        message = diagnostic.message,
+        severity = SEVERITY_MAP[diagnostic.severity] or "Error",
+        range = {
+          start = {
+            line = diagnostic.lnum,
+            character = diagnostic.col,
+          },
+          ["end"] = {
+            line = diagnostic.end_lnum or diagnostic.lnum,
+            character = diagnostic.end_col or diagnostic.col,
+          },
+        },
+        source = diagnostic.source or nil,
+        code = diagnostic.code and tostring(diagnostic.code) or nil,
+      })
+    end
+  end
+
+  local result = {}
+  for _, uri in ipairs(files_order) do
+    table.insert(result, files_map[uri])
+  end
+  return result
+end
+
 ---Handles the getDiagnostics tool invocation.
 ---Retrieves diagnostics from Neovim's diagnostic system.
 ---@param params table The input parameters for the tool
----@return table diagnostics MCP-compliant response with diagnostics data
+---@return table MCP-compliant response with DiagnosticFile[] data
 local function handler(params)
   if not vim.lsp or not vim.diagnostic or not vim.diagnostic.get then
-    -- Returning an empty list or a specific status could be an alternative.
-    -- For now, let's align with the error pattern for consistency if the feature is unavailable.
     error({
       code = -32000,
       message = "Feature unavailable",
@@ -35,61 +77,37 @@ local function handler(params)
   end
 
   local logger = require("claudecode.logger")
-
   logger.debug("getDiagnostics handler called with params: " .. vim.inspect(params))
 
-  -- Extract the uri parameter
-  local diagnostics
+  local raw_diagnostics
 
   if not params.uri then
-    -- Get diagnostics for all buffers
     logger.debug("Getting diagnostics for all open buffers")
-    diagnostics = vim.diagnostic.get(nil)
+    raw_diagnostics = vim.diagnostic.get(nil)
   else
     local uri = params.uri
     local filepath = vim.startswith(uri, "file://") and vim.uri_to_fname(uri) or uri
 
-    -- Get buffer number for the specific file
     local bufnr = vim.fn.bufnr(filepath)
     if bufnr == -1 then
-      -- File is not open in any buffer, throw an error
       logger.debug("File buffer must be open to get diagnostics: " .. filepath)
       error({
         code = -32001,
         message = "File not open",
         data = "File must be open to retrieve diagnostics: " .. filepath,
       })
-    else
-      -- Get diagnostics for the specific buffer
-      logger.debug("Getting diagnostics for bufnr: " .. bufnr)
-      diagnostics = vim.diagnostic.get(bufnr)
     end
+
+    logger.debug("Getting diagnostics for bufnr: " .. bufnr)
+    raw_diagnostics = vim.diagnostic.get(bufnr)
   end
 
-  local formatted_diagnostics = {}
-  for _, diagnostic in ipairs(diagnostics) do
-    local file_path = vim.api.nvim_buf_get_name(diagnostic.bufnr)
-    -- Ensure we only include diagnostics with valid file paths
-    if file_path and file_path ~= "" then
-      table.insert(formatted_diagnostics, {
-        type = "text",
-        -- json encode this
-        text = vim.json.encode({
-          -- Use the file path and diagnostic information
-          filePath = file_path,
-          -- Convert line and column to 1-indexed
-          line = diagnostic.lnum + 1,
-          character = diagnostic.col + 1,
-          severity = diagnostic.severity, -- e.g., vim.diagnostic.severity.ERROR
-          message = diagnostic.message,
-          source = diagnostic.source,
-        }),
-      })
-    end
-  end
+  local diagnostic_files = format_diagnostics(raw_diagnostics)
 
   return {
-    content = formatted_diagnostics,
+    content = {
+      { type = "text", text = vim.json.encode(diagnostic_files) },
+    },
   }
 end
 
