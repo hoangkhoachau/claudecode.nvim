@@ -253,7 +253,7 @@ function M.handle_selection_demotion(original_bufnr_when_scheduled)
   -- M.state.demotion_timer should be nil here if it fired normally or was cancelled.
 
   local current_buf = vim.api.nvim_get_current_buf()
-  local claude_term_bufnr = terminal.get_active_terminal_bufnr()
+  local claude_term_bufnr = terminal and terminal.get_active_terminal_bufnr()
 
   -- Condition 1: Switched to Claude Terminal
   if claude_term_bufnr and current_buf == claude_term_bufnr then
