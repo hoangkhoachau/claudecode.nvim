@@ -337,6 +337,13 @@ function M.start(show_startup_notification)
   local server = require("claudecode.server.init")
   local lockfile = require("claudecode.lockfile")
 
+  -- Reuse port previously assigned to this tmux window (survives nvim restarts)
+  local tmux_mod = require("claudecode.tmux")
+  local window_port = tmux_mod.get_window_port()
+  if window_port then
+    M.state.config.port_range = { min = window_port, max = window_port }
+  end
+
   -- Generate auth token first so we can pass it to the server
   local auth_token
   local auth_success, auth_result = pcall(function()

@@ -28,6 +28,17 @@ local function find_claude_pane()
   return nil
 end
 
+---Get the port previously advertised on this tmux window, if any.
+---@return number|nil port
+function M.get_window_port()
+  if not in_tmux() then
+    return nil
+  end
+  local val = vim.fn.system("tmux show-options -wqv " .. WINDOW_PORT_VAR .. " 2>/dev/null")
+  val = val:gsub("%s+$", "")
+  return val ~= "" and tonumber(val) or nil
+end
+
 ---Focus the tmux pane running Claude Code.
 ---Does nothing if not inside tmux or no Claude pane is found.
 function M.focus_claude_pane()
@@ -41,7 +52,8 @@ function M.focus_claude_pane()
 end
 
 ---Advertise the bridge port on the current tmux window.
----Refuses to overwrite an existing port set by another Neovim instance.
+---If a port is already set by another live Neovim instance, refuses to overwrite.
+---If the old port's lock file is gone (crashed instance), overwrites it.
 ---@param port number The WebSocket port to advertise
 ---@return boolean success
 ---@return string|nil error
@@ -50,30 +62,25 @@ function M.advertise_port(port)
     return true, nil
   end
 
-  -- Check if another instance already claimed this window
   local existing = vim.fn.system("tmux show-options -wqv " .. WINDOW_PORT_VAR .. " 2>/dev/null")
-  existing = existing:gsub("%s+$", "") -- trim trailing whitespace/newline
+  existing = existing:gsub("%s+$", "")
 
-  if existing ~= "" then
+  if existing ~= "" and existing ~= tostring(port) then
     -- Check if the existing port's lock file still exists (stale if nvim crashed)
     local lock_dir = os.getenv("CLAUDE_CONFIG_DIR") or (os.getenv("HOME") .. "/.claude/ide")
     local lock_path = lock_dir .. "/" .. existing .. ".lock"
     if vim.fn.filereadable(lock_path) == 1 then
       return false, "Window already has a Neovim bridge on port " .. existing
     end
-    -- Lock file gone — stale entry, overwrite it
   end
 
   vim.fn.system("tmux set-option -w " .. WINDOW_PORT_VAR .. " " .. port)
   return true, nil
 end
 
----Remove the port advertisement from the current tmux window.
+---Keep the port advertisement on exit — intentionally a no-op so the port
+---persists across nvim restarts and is reused by the next session.
 function M.unadvertise_port()
-  if not in_tmux() then
-    return
-  end
-  vim.fn.system("tmux set-option -wu " .. WINDOW_PORT_VAR .. " 2>/dev/null")
 end
 
 return M
