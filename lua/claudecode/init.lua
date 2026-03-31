@@ -340,23 +340,33 @@ function M.start(show_startup_notification)
   -- Reuse port previously assigned to this tmux window (survives nvim restarts)
   local tmux_mod = require("claudecode.tmux")
   local window_port = tmux_mod.get_window_port()
+  local reused_auth_token
   if window_port then
     M.state.config.port_range = { min = window_port, max = window_port }
+    -- Reuse existing auth token so Claude Code doesn't need to re-authenticate
+    local tok_ok, tok = lockfile.get_auth_token(window_port)
+    if tok_ok then
+      reused_auth_token = tok
+    end
   end
 
   -- Generate auth token first so we can pass it to the server
   local auth_token
-  local auth_success, auth_result = pcall(function()
-    return lockfile.generate_auth_token()
-  end)
+  if reused_auth_token then
+    auth_token = reused_auth_token
+  else
+    local auth_success, auth_result = pcall(function()
+      return lockfile.generate_auth_token()
+    end)
 
-  if not auth_success then
-    local error_msg = "Failed to generate authentication token: " .. (auth_result or "unknown error")
-    logger.error("init", error_msg)
-    return false, error_msg
+    if not auth_success then
+      local error_msg = "Failed to generate authentication token: " .. (auth_result or "unknown error")
+      logger.error("init", error_msg)
+      return false, error_msg
+    end
+
+    auth_token = auth_result
   end
-
-  auth_token = auth_result
 
   -- Validate the generated auth token
   if not auth_token or type(auth_token) ~= "string" or #auth_token < 10 then
